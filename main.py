@@ -1,82 +1,80 @@
 import os
 import time
-from instagram.client import InstagramAPI
+import base64
+import logging
+import requests
 from flask import Flask, request, render_template, session, redirect, abort, flash, jsonify
 
 app = Flask(__name__)   # create our flask app
 app.secret_key = os.environ.get('SECRET_KEY')
 
+def twitter_connect():
+    logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
 
-# configure Instagram API
-instaConfig = {
-	'client_id':os.environ.get('CLIENT_ID'),
-	'client_secret':os.environ.get('CLIENT_SECRET'),
-	'redirect_uri' : os.environ.get('REDIRECT_URI')
-}
-api = InstagramAPI(**instaConfig)
+    key_secret = '{}:{}'.format(client_key, client_secret).encode('ascii')
+    b64_encoded_key = base64.b64encode(key_secret)
+    b64_encoded_key = b64_encoded_key.decode('ascii')
 
-@app.route('/')
-def user_photos():
+    base_url = 'https://api.twitter.com/'
+    auth_url = '{}oauth2/token'.format(base_url)
 
-	# if instagram info is in session variables, then display user photos
-	if 'instagram_access_token' in session and 'instagram_user' in session:
-		userAPI = InstagramAPI(access_token=session['instagram_access_token'])
-		recent_media, next = userAPI.user_recent_media(user_id=session['instagram_user'].get('id'),count=25)
+    auth_headers = {
+        'Authorization': 'Basic {}'.format(b64_encoded_key),
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+    }
 
-		templateData = {
-			'size' : request.args.get('size','thumb'),
-			'media' : recent_media
-		}
+    auth_data = {
+        'grant_type': 'client_credentials'
+    }
 
-		return render_template('display.html', **templateData)
-		
+    auth_resp = requests.post(auth_url, headers=auth_headers, data=auth_data)
+    print("Twitter Response: ", auth_resp.status_code)
 
-	else:
+    auth_resp.json().keys()
+    print("Response Keys: ", auth_resp.json().keys())
 
-		return redirect('/connect')
+    access_token = auth_resp.json()['access_token']
+    print("Access Token: ", access_token)
 
-# Redirect users to Instagram for login
-@app.route('/connect')
-def main():
+    # post request
 
-	url = api.get_authorize_url(scope=["likes","comments"])
-	return redirect(url)
+    myobj = {'somekey': 'somevalue'}
 
-# Instagram will redirect users back to this route after successfully logging in
-@app.route('/instagram_callback')
-def instagram_callback():
-    
-    app.getLogger()
+    upload_resource_url = 'https://upload.twitter.com/1.1/media/upload.json'
 
-    code = request.args.get('code')
+    x = requests.post(upload_resource_url, data = myobj)
 
-	if code:
+    print(x.text)
 
-		access_token, user = api.exchange_code_for_access_token(code)
-		if not access_token:
-			return 'Could not get access token'
+    return access_token
 
-		app.logger.debug('got an access token')
-		app.logger.debug(access_token)
+def search_request(access_token, base_url):
+    # search request
 
-		# Sessions are used to keep this data 
-		session['instagram_access_token'] = access_token
-		session['instagram_user'] = user
+    search_headers = {
+        'Authorization': 'Bearer {}'.format(access_token)    
+    }
 
-		return redirect('/') # redirect back to main page
-		
-	else:
-		return "Uhoh no code provided"
-	
-@app.errorhandler(404)
-def page_not_found(error):
-    return render_template('404.html'), 404
+    search_params = {
+        'q': 'General Election',
+        'result_type': 'recent',
+        'count': 2
+    }
 
-# This is a jinja custom filter
-@app.template_filter('strftime')
-def _jinja2_filter_datetime(date, fmt=None):
-    pyDate = time.strptime(date,'%a %b %d %H:%M:%S +0000 %Y') # convert instagram date string into python date/time
-    return time.strftime('%Y-%m-%d %h:%M:%S', pyDate) # return the formatted date.
+    search_url = '{}1.1/search/tweets.json'.format(base_url)
+
+    search_resp = requests.get(search_url, headers=search_headers, params=search_params)
+
+    search_resp.status_code
+
+    tweet_data = search_resp.json()
+
+    for x in tweet_data['statuses']:
+        print(x['text'] + '\n')
+
+
+# def twitter_query():
+
 
 
 @app.route("/")
@@ -84,8 +82,83 @@ def home():
     return render_template("home.html")
     
 if __name__ == "__main__":
-    app.run(debug=True)
     
-#     port = int(os.environ.get('PORT', 5000)) # locally PORT 5000, Heroku will assign its own port
-#     app.run(host='0.0.0.0')
-# app.run(host='0.0.0.0', port=port)
+    base_url = 'https://api.twitter.com/'
+
+    access_token = twitter_connect()
+    search_request(access_token, base_url)
+    app.run(debug=True)
+
+
+# from instagram.client import InstagramAPI
+
+# # configure Instagram API
+# instaConfig = {
+# 	'client_id':os.environ.get(''),
+# 	'client_secret':os.environ.get('CLIENT_SECRET'),
+# 	'redirect_uri' : os.environ.get('REDIRECT_URI')
+# }
+# api = InstagramAPI(**instaConfig)
+
+# @app.route('/')
+# def user_photos():
+
+# 	# if instagram info is in session variables, then display user photos
+# 	if 'instagram_access_token' in session and 'instagram_user' in session:
+# 		userAPI = InstagramAPI(access_token=session['instagram_access_token'])
+# 		recent_media, next = userAPI.user_recent_media(user_id=session['instagram_user'].get('id'),count=25)
+
+# 		templateData = {
+# 			'size' : request.args.get('size','thumb'),
+# 			'media' : recent_media
+# 		}
+
+# 		return render_template('display.html', **templateData)
+		
+
+# 	else:
+
+# 		return redirect('/connect')
+
+# # Redirect users to Instagram for login
+# @app.route('/connect')
+# def main():
+
+# 	url = api.get_authorize_url(scope=["likes","comments"])
+# 	return redirect(url)
+
+# # Instagram will redirect users back to this route after successfully logging in
+# @app.route('/instagram_callback')
+# def instagram_callback():
+    
+#     app.getLogger()
+
+#     code = request.args.get('code')
+
+#     if code:
+
+# 		access_token, user = api.exchange_code_for_access_token(code)
+# 		if not access_token:
+# 			return 'Could not get access token'
+
+# 		app.logger.debug('got an access token')
+# 		app.logger.debug(access_token)
+
+# 		# Sessions are used to keep this data 
+# 		session['instagram_access_token'] = access_token
+# 		session['instagram_user'] = user
+
+# 		return redirect('/') # redirect back to main page
+		
+# 	else:
+# 		return "Uhoh no code provided"
+	
+# @app.errorhandler(404)
+# def page_not_found(error):
+#     return render_template('404.html'), 404
+
+# # This is a jinja custom filter
+# @app.template_filter('strftime')
+# def _jinja2_filter_datetime(date, fmt=None):
+#     pyDate = time.strptime(date,'%a %b %d %H:%M:%S +0000 %Y') # convert instagram date string into python date/time
+#     return time.strftime('%Y-%m-%d %h:%M:%S', pyDate) # return the formatted date.
